@@ -7,7 +7,6 @@ const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
 const BASE_URL = 'http://www3.alerj.rj.gov.br/lotus_notes/default.asp';
 
-// Tipos monitorados: sigla usada como prefixo de ID, label no email, id da URL
 const TIPOS = [
   { sigla: 'PEC',    label: 'Proj. Emenda Constitucional', id: 158 },
   { sigla: 'PLC',    label: 'Proj. de Lei Complementar',   id: 160 },
@@ -52,9 +51,17 @@ function limparHtml(str) {
 function extrairProposicoesDaPagina(html, tipo) {
   const proposicoes = [];
 
-  // Cada linha de proposição no Domino tem um código de 11 dígitos (AAAA+TT+NNNNN)
-  // A estrutura é: <td>CODIGO</td> <td>ícone</td> <td>EMENTA => CODIGO => {COMISSOES}</td>
-  //                <td>DD/MM/AAAA</td> <td>AUTOR(ES)</td>
+  // Estrutura real do Domino (confirmada inspecionando o HTML):
+  //
+  // <tr>
+  //   <td>[20260307407](#)</td>           ← código 11 dígitos (col 0)
+  //   <td>Blue right arrow Icon</td>      ← ícone (col 1)
+  //   <td>EMENTA =>20260307407=> {...}</td>  ← descrição (col 2)
+  //   <td>06/04/2026</td>                 ← data (col 3)
+  //   <td>AUTOR</td>                      ← autor (col 4)
+  // </tr>
+  //
+  // A ementa é o texto da col 2 ANTES do primeiro " =>"
 
   const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let trMatch;
@@ -62,40 +69,41 @@ function extrairProposicoesDaPagina(html, tipo) {
   while ((trMatch = trRegex.exec(html)) !== null) {
     const linha = trMatch[1];
 
-    // Só processa linhas que contenham um código de 11 dígitos
+    // Filtra apenas linhas com código de 11 dígitos
     const codigoMatch = linha.match(/\b(\d{11})\b/);
     if (!codigoMatch) continue;
 
     const codigo = codigoMatch[1];
     const ano = codigo.substring(0, 4);
-    const numero = String(parseInt(codigo.substring(6), 10)); // sem zeros à esquerda
+    const numero = String(parseInt(codigo.substring(6), 10));
 
-    // Extrai todas as células <td> como texto limpo
+    // Extrai todas as células como texto limpo
     const tds = [];
     const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
     let tdMatch;
     while ((tdMatch = tdRegex.exec(linha)) !== null) {
-      const texto = limparHtml(tdMatch[1]);
-      tds.push(texto); // inclui células vazias para manter posicionamento
+      tds.push(limparHtml(tdMatch[1]));
     }
 
     if (tds.length < 3) continue;
 
+    // Localiza a célula de descrição: é a que contém " =>" (separador Domino)
+    // e também contém o código. Normalmente é tds[2], mas buscamos para robustez.
     let ementa = '-';
     let data = '-';
     let autor = '-';
 
-    // Localiza a célula que contém o código → é a de descrição
     for (let i = 0; i < tds.length; i++) {
-      if (tds[i].includes(codigo)) {
-        // Ementa: tudo antes do primeiro "=>"
+      if (tds[i].includes('=>') && tds[i].includes(codigo)) {
+        // Ementa = tudo antes do primeiro "=>"
         const partes = tds[i].split('=>');
-        ementa = partes[0].trim().substring(0, 250);
+        ementa = partes[0].trim().substring(0, 300);
 
-        // Procura data e autor nas células seguintes
+        // Data: próxima célula com formato DD/MM/AAAA
         for (let j = i + 1; j < tds.length; j++) {
-          if (/\d{2}\/\d{2}\/\d{4}/.test(tds[j])) {
-            data = tds[j].match(/\d{2}\/\d{2}\/\d{4}/)[0];
+          const dataMatch = tds[j].match(/\d{2}\/\d{2}\/\d{4}/);
+          if (dataMatch) {
+            data = dataMatch[0];
             if (tds[j + 1] && tds[j + 1].trim()) {
               autor = tds[j + 1].substring(0, 200);
             }
@@ -143,8 +151,14 @@ async function buscarTipo(tipo) {
     const html = await response.text();
     const lista = extrairProposicoesDaPagina(html, tipo);
     console.log(`  ✅ ${tipo.sigla}: ${lista.length} proposições encontradas`);
-    return lista;
 
+    // Debug: mostra primeira proposição para validar campos
+    if (lista.length > 0) {
+      const p = lista[0];
+      console.log(`     Exemplo: ${p.numero}/${p.ano} | ${p.data} | ${p.autor.substring(0,30)} | ${p.ementa.substring(0,60)}...`);
+    }
+
+    return lista;
   } catch (err) {
     console.error(`  ❌ Erro ao buscar ${tipo.sigla}: ${err.message}`);
     return [];
@@ -156,7 +170,6 @@ async function buscarTodasProposicoes() {
   for (const tipo of TIPOS) {
     const lista = await buscarTipo(tipo);
     todas.push(...lista);
-    // Pausa entre requests para não sobrecarregar o servidor Domino
     await new Promise(r => setTimeout(r, 1500));
   }
   return todas;
@@ -170,21 +183,18 @@ async function enviarEmail(novas) {
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
   });
 
-  // Agrupa por label do tipo
   const porTipo = {};
   novas.forEach(p => {
     if (!porTipo[p.label]) porTipo[p.label] = [];
     porTipo[p.label].push(p);
   });
 
-  // Mantém a ordem definida em TIPOS
   const ordemTipos = TIPOS.map(t => t.label);
   const tiposOrdenados = Object.keys(porTipo)
     .sort((a, b) => ordemTipos.indexOf(a) - ordemTipos.indexOf(b));
 
   const linhas = tiposOrdenados.map(label => {
     const grupo = porTipo[label];
-    // Ordena por número decrescente dentro do grupo
     grupo.sort((a, b) => (parseInt(b.numero) || 0) - (parseInt(a.numero) || 0));
 
     const header = `
