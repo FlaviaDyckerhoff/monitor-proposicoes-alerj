@@ -274,12 +274,20 @@ async function enviarEmail(novas) {
     process.exit(0);
   }
 
-  console.log(`\n📊 Total encontrado: ${todas.length} proposições`);
+  // Filtro A: só ano corrente
+  const anoAtual = String(new Date().getFullYear());
+  const doAnoAtual = todas.filter(p => p.ano === anoAtual);
+  console.log(`\n📊 Total encontrado: ${todas.length} | Do ano ${anoAtual}: ${doAnoAtual.length}`);
 
-  const novas = todas.filter(p => !idsVistos.has(p.id));
+  const novas = doAnoAtual.filter(p => !idsVistos.has(p.id));
   console.log(`🆕 Novas (não vistas antes): ${novas.length}`);
 
-  if (novas.length > 0) {
+  // Filtro B: primeiro run — marca tudo como visto sem enviar email
+  const primeiroRun = idsVistos.size === 0;
+  if (primeiroRun) {
+    console.log('⚙️ Primeiro run detectado — marcando todas como vistas sem enviar email.');
+    doAnoAtual.forEach(p => idsVistos.add(p.id));
+  } else if (novas.length > 0) {
     await enviarEmail(novas);
     novas.forEach(p => idsVistos.add(p.id));
   } else {
