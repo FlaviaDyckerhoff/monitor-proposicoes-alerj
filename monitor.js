@@ -6,6 +6,7 @@ const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
 const BASE_URL = 'http://www3.alerj.rj.gov.br/lotus_notes/default.asp';
+let falhasBusca = 0;
 
 const TIPOS = [
   { sigla: 'PEC',    label: 'Proj. Emenda Constitucional', id: 158 },
@@ -145,6 +146,7 @@ async function buscarTipo(tipo) {
 
     if (!response.ok) {
       console.error(`  ❌ HTTP ${response.status} para ${tipo.sigla}`);
+      falhasBusca += 1;
       return [];
     }
 
@@ -161,6 +163,7 @@ async function buscarTipo(tipo) {
     return lista;
   } catch (err) {
     console.error(`  ❌ Erro ao buscar ${tipo.sigla}: ${err.message}`);
+    falhasBusca += 1;
     return [];
   }
 }
@@ -271,6 +274,10 @@ async function enviarEmail(novas) {
 
   if (todas.length === 0) {
     console.log('⚠️ Nenhuma proposição encontrada. Verifique o portal.');
+    if (falhasBusca > 0) {
+      console.error(`❌ Falha de fonte: ${falhasBusca} tipo(s) tiveram erro de busca.`);
+      process.exit(1);
+    }
     process.exit(0);
   }
 
