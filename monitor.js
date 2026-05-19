@@ -5,7 +5,8 @@ const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
-const BASE_URL = 'http://www3.alerj.rj.gov.br/lotus_notes/default.asp';
+// O portal Lotus Notes da ALERJ responde corretamente em HTTPS; HTTP cai em bloqueio/rejeição.
+const BASE_URL = 'https://www3.alerj.rj.gov.br/lotus_notes/default.asp';
 let falhasBusca = 0;
 
 const TIPOS = [
@@ -245,7 +246,7 @@ async function enviarEmail(novas) {
         <tbody>${linhas}</tbody>
       </table>
       <p style="margin-top:20px;font-size:12px;color:#999">
-        Acesse: <a href="http://www3.alerj.rj.gov.br">www3.alerj.rj.gov.br</a>
+        Acesse: <a href="https://www3.alerj.rj.gov.br">www3.alerj.rj.gov.br</a>
       </p>
     </div>
   `;

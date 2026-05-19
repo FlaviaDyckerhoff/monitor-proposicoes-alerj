@@ -27,7 +27,7 @@ Monitora automaticamente o portal da Assembleia Legislativa do Estado do Rio de 
 A ALERJ usa **IBM Lotus Notes/Domino** — não há API REST. O script faz scraping de HTML server-rendered (sem JavaScript, sem Playwright), leve e confiável.
 
 1. GitHub Actions roda o script 4x/dia
-2. Para cada tipo, faz GET na URL `www3.alerj.rj.gov.br/lotus_notes/default.asp?id=XXX`
+2. Para cada tipo, faz GET na URL `https://www3.alerj.rj.gov.br/lotus_notes/default.asp?id=XXX`
 3. Extrai proposições da tabela HTML (código 11 dígitos, ementa, data, autor)
 4. Compara com `estado.json` para identificar novidades
 5. Se houver novas → envia email agrupado por tipo
@@ -90,7 +90,7 @@ Edite `estado.json` no repositório e substitua por:
 
 ## Problemas comuns
 
-**0 proposições em todos os tipos** → Portal fora do ar. Teste: `http://www3.alerj.rj.gov.br/lotus_notes/default.asp?id=161`
+**0 proposições em todos os tipos** → Portal fora do ar. Teste: `https://www3.alerj.rj.gov.br/lotus_notes/default.asp?id=161`
 
 **Authentication failed** → `EMAIL_SENHA` colado com espaços.
 
