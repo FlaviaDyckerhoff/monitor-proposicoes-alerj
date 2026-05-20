@@ -7,6 +7,7 @@ const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
 // O portal Lotus Notes da ALERJ responde corretamente em HTTPS; HTTP cai em bloqueio/rejeição.
 const BASE_URL = 'https://www3.alerj.rj.gov.br/lotus_notes/default.asp';
+const DETALHE_BASE_URL = 'https://www3.alerj.rj.gov.br';
 let falhasBusca = 0;
 
 const TIPOS = [
@@ -78,6 +79,8 @@ function extrairProposicoesDaPagina(html, tipo) {
     const codigo = codigoMatch[1];
     const ano = codigo.substring(0, 4);
     const numero = String(parseInt(codigo.substring(6), 10));
+    const detalheMatch = linha.match(/data-role="([^"]+)"/i);
+    const url = detalheMatch ? new URL(detalheMatch[1], DETALHE_BASE_URL).href : `${BASE_URL}?id=${tipo.id}`;
 
     // Extrai todas as células como texto limpo
     const tds = [];
@@ -126,6 +129,7 @@ function extrairProposicoesDaPagina(html, tipo) {
       autor,
       data,
       ementa,
+      url,
     });
   }
 
@@ -214,7 +218,7 @@ async function enviarEmail(novas) {
         <td style="padding:8px;border-bottom:1px solid #eee;color:#555;font-size:12px;
           white-space:nowrap">${p.sigla}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;white-space:nowrap">
-          <strong>${p.numero}/${p.ano}</strong>
+          <strong><a href="${p.url}" style="color:#1a3a5c;text-decoration:none">${p.numero}/${p.ano}</a></strong>
         </td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.autor}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;
