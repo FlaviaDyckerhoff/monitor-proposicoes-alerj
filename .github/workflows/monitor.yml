@@ -1,5 +1,8 @@
 name: Monitor Proposições ALERJ
 
+env:
+  TZ: America/Sao_Paulo
+
 on:
   schedule:
     - cron: '0 20 * * *'   # 17:00 BRT
