@@ -1,10 +1,13 @@
 const fs = require('fs');
+const path = require('path');
 const nodemailer = require('nodemailer');
 
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
+const FIRJAN_DESTINO = process.env.FIRJAN_DESTINO || EMAIL_DESTINO || 'tramitacao@monitorlegislativo.com.br';
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
+const LOGO_PATH = path.join(__dirname, 'assets', 'monitor-logo-color.png');
 // O portal Lotus Notes da ALERJ responde corretamente em HTTPS; HTTP cai em bloqueio/rejeição.
 const BASE_URL = 'https://www3.alerj.rj.gov.br/lotus_notes/default.asp';
 const DETALHE_BASE_URL = 'https://www3.alerj.rj.gov.br';
@@ -49,6 +52,23 @@ function limparHtml(str) {
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatarDataHoraBRT() {
+  return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+function formatarDataBRT() {
+  return new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 }
 
 function extrairProposicoesDaPagina(html, tipo) {
@@ -230,12 +250,22 @@ async function enviarEmail(novas) {
   }).join('');
 
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto">
-      <h2 style="color:#1a3a5c;border-bottom:2px solid #1a3a5c;padding-bottom:8px">
-        🏛️ ALERJ — ${novas.length} nova(s) proposição(ões)
+    <div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto;background:#ffffff;color:#111827">
+      <div style="background:#0f3357;padding:22px 24px;border-radius:12px 12px 0 0;color:#ffffff">
+        <img src="cid:monitorLogo" alt="Monitor Legislativo" style="height:58px;vertical-align:middle;margin-right:18px">
+        <span style="font-size:26px;font-weight:700;vertical-align:middle">Monitor Legislativo</span>
+        <div style="font-size:14px;color:#d7e5f2;margin-top:8px">Proposições novas • Assembleia Legislativa do RJ</div>
+      </div>
+      <div style="border:1px solid #d7dde7;border-top:0;padding:24px;border-radius:0 0 12px 12px">
+      <p style="display:inline-block;background:#e6f1fb;color:#0f3357;padding:6px 14px;border-radius:20px;font-weight:bold;margin:0 0 16px 0">FIRJAN</p>
+      <h2 style="color:#111827;margin:0 0 6px 0;font-size:24px">
+        FIRJAN | ALERJ — Novas proposições
       </h2>
-      <p style="color:#666;margin-top:0">
-        Monitoramento automático — ${new Date().toLocaleString('pt-BR')}
+      <p style="color:#526070;margin:0 0 18px 0">
+        Rodada diária • ${formatarDataHoraBRT()} BRT
+      </p>
+      <p style="background:#eef6ff;border:1px solid #c7ddf2;color:#173d63;padding:12px 14px;border-radius:8px;font-weight:bold">
+        ${novas.length} proposição(ões) nova(s) localizada(s) na ALERJ
       </p>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead>
@@ -252,17 +282,23 @@ async function enviarEmail(novas) {
       <p style="margin-top:20px;font-size:12px;color:#999">
         Acesse: <a href="https://www3.alerj.rj.gov.br">www3.alerj.rj.gov.br</a>
       </p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+      <p style="font-size:12px;color:#64748b;margin:0">
+        Monitor Legislativo — acompanhamento legislativo estadual e municipal. Horário sempre em BRT.
+      </p>
+      </div>
     </div>
   `;
 
   await transporter.sendMail({
-    from: `"Monitor ALERJ" <${EMAIL_REMETENTE}>`,
-    to: EMAIL_DESTINO,
-    subject: `🏛️ ALERJ: ${novas.length} nova(s) proposição(ões) — ${new Date().toLocaleDateString('pt-BR')}`,
+    from: `"Monitor Legislativo" <${EMAIL_REMETENTE}>`,
+    to: FIRJAN_DESTINO,
+    subject: `FIRJAN | ALERJ — Novas proposições — ${formatarDataBRT()}`,
     html,
+    attachments: fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-color.png', path: LOGO_PATH, cid: 'monitorLogo' }] : [],
   });
 
-  console.log(`✅ Email enviado com ${novas.length} proposições novas.`);
+  console.log(`✅ Email FIRJAN/ALERJ enviado para ${FIRJAN_DESTINO} com ${novas.length} proposições novas.`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
