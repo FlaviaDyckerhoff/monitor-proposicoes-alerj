@@ -205,100 +205,133 @@ async function buscarTodasProposicoes() {
 
 // ─── Email ────────────────────────────────────────────────────────────────────
 
+function parseDataBR(data) {
+  const match = String(data || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return 0;
+  return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+}
+
+function compararDataBR(a, b) {
+  return parseDataBR(a) - parseDataBR(b);
+}
+
+function obterIntervaloSemanaBRT() {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  const hoje = new Date(Date.UTC(Number(partes.year), Number(partes.month) - 1, Number(partes.day)));
+  const diaSemana = hoje.getUTCDay() || 7;
+  const segunda = new Date(hoje);
+  segunda.setUTCDate(hoje.getUTCDate() - diaSemana + 1);
+  const sexta = new Date(segunda);
+  sexta.setUTCDate(segunda.getUTCDate() + 4);
+
+  const fmt = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' });
+  return fmt.format(segunda) + ' a ' + fmt.format(sexta);
+}
+
+function agruparPorData(proposicoes) {
+  return proposicoes.reduce((acc, p) => {
+    const data = p.data && p.data !== '-' ? p.data : 'Data não informada';
+    if (!acc[data]) acc[data] = [];
+    acc[data].push(p);
+    return acc;
+  }, {});
+}
+
+function numeroOrdenavel(numero) {
+  const match = String(numero || '').match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function montarLinhasPorData(proposicoes) {
+  const porData = agruparPorData(proposicoes);
+  const datasOrdenadas = Object.keys(porData).sort(compararDataBR);
+
+  return datasOrdenadas.map(data => {
+    const grupo = porData[data].sort((a, b) => {
+      const tipoA = TIPOS.findIndex(t => t.sigla === a.sigla);
+      const tipoB = TIPOS.findIndex(t => t.sigla === b.sigla);
+      if (tipoA !== tipoB) return tipoA - tipoB;
+      return numeroOrdenavel(b.numero) - numeroOrdenavel(a.numero);
+    });
+
+    const header = '<tr>' +
+      '<td colspan="5" style="padding:12px 10px 6px;background:#e8eef5;font-weight:bold;color:#1a3a5c;font-size:14px;border-top:3px solid #1a3a5c">' +
+      'Apresentadas em ' + escapeHtml(data) + ' — ' + grupo.length + ' proposição(ões)' +
+      '</td></tr>';
+
+    const rows = grupo.map(p => {
+      const numero = escapeHtml(p.numero) + '/' + escapeHtml(p.ano);
+      const link = p.url ? '<a href="' + escapeHtml(p.url) + '" style="color:#1a3a5c;text-decoration:none"><strong>' + numero + '</strong></a>' : '<strong>' + numero + '</strong>';
+
+      return '<tr>' +
+        '<td style="padding:8px;border-bottom:1px solid #eee;color:#555;font-size:12px;white-space:nowrap">' + escapeHtml(p.sigla) + '</td>' +
+        '<td style="padding:8px;border-bottom:1px solid #eee;white-space:nowrap">' + link + '</td>' +
+        '<td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">' + escapeHtml(p.autor) + '</td>' +
+        '<td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">' + escapeHtml(p.label) + '</td>' +
+        '<td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">' + escapeHtml(p.ementa) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return header + rows;
+  }).join('');
+}
+
+
 async function enviarEmail(novas) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
   });
 
-  const porTipo = {};
-  novas.forEach(p => {
-    if (!porTipo[p.label]) porTipo[p.label] = [];
-    porTipo[p.label].push(p);
-  });
+  const linhas = montarLinhasPorData(novas);
+  const intervaloSemana = obterIntervaloSemanaBRT();
 
-  const ordemTipos = TIPOS.map(t => t.label);
-  const tiposOrdenados = Object.keys(porTipo)
-    .sort((a, b) => ordemTipos.indexOf(a) - ordemTipos.indexOf(b));
-
-  const linhas = tiposOrdenados.map(label => {
-    const grupo = porTipo[label];
-    grupo.sort((a, b) => (parseInt(b.numero) || 0) - (parseInt(a.numero) || 0));
-
-    const header = `
-      <tr>
-        <td colspan="5" style="padding:10px 8px 4px;background:#e8eef5;font-weight:bold;
-          color:#1a3a5c;font-size:13px;border-top:3px solid #1a3a5c">
-          ${label} — ${grupo.length} nova(s)
-        </td>
-      </tr>`;
-
-    const rows = grupo.map(p => `
-      <tr>
-        <td style="padding:8px;border-bottom:1px solid #eee;color:#555;font-size:12px;
-          white-space:nowrap">${p.sigla}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;white-space:nowrap">
-          <strong><a href="${p.url}" style="color:#1a3a5c;text-decoration:none">${p.numero}/${p.ano}</a></strong>
-        </td>
-        <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.autor}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;
-          white-space:nowrap">${p.data}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.ementa}</td>
-      </tr>`).join('');
-
-    return header + rows;
-  }).join('');
-
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto;background:#ffffff;color:#111827">
-      <div style="background:#0f3357;padding:22px 24px;border-radius:12px 12px 0 0;color:#ffffff">
-        <img src="cid:monitorLogo" alt="Monitor Legislativo" style="height:58px;vertical-align:middle;margin-right:18px">
-        <span style="font-size:26px;font-weight:700;vertical-align:middle">Monitor Legislativo</span>
-        <div style="font-size:14px;color:#d7e5f2;margin-top:8px">Proposições novas • Assembleia Legislativa do RJ</div>
-      </div>
-      <div style="border:1px solid #d7dde7;border-top:0;padding:24px;border-radius:0 0 12px 12px">
-      <p style="display:inline-block;background:#e6f1fb;color:#0f3357;padding:6px 14px;border-radius:20px;font-weight:bold;margin:0 0 16px 0">FIRJAN</p>
-      <h2 style="color:#111827;margin:0 0 6px 0;font-size:24px">
-        FIRJAN | ALERJ — Novas proposições
-      </h2>
-      <p style="color:#526070;margin:0 0 18px 0">
-        Rodada diária • ${formatarDataHoraBRT()} BRT
-      </p>
-      <p style="background:#eef6ff;border:1px solid #c7ddf2;color:#173d63;padding:12px 14px;border-radius:8px;font-weight:bold">
-        ${novas.length} proposição(ões) nova(s) localizada(s) na ALERJ
-      </p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
-        <thead>
-          <tr style="background:#1a3a5c;color:white">
-            <th style="padding:10px;text-align:left">Sigla</th>
-            <th style="padding:10px;text-align:left">Número/Ano</th>
-            <th style="padding:10px;text-align:left">Autor(es)</th>
-            <th style="padding:10px;text-align:left">Data Publ.</th>
-            <th style="padding:10px;text-align:left">Ementa</th>
-          </tr>
-        </thead>
-        <tbody>${linhas}</tbody>
-      </table>
-      <p style="margin-top:20px;font-size:12px;color:#999">
-        Acesse: <a href="https://www3.alerj.rj.gov.br">www3.alerj.rj.gov.br</a>
-      </p>
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
-      <p style="font-size:12px;color:#64748b;margin:0">
-        Monitor Legislativo — acompanhamento legislativo estadual e municipal. Horário sempre em BRT.
-      </p>
-      </div>
-    </div>
-  `;
+  const html = [
+    '<div style="font-family:Arial,sans-serif;max-width:960px;margin:0 auto;background:#ffffff;color:#111827">',
+    '<div style="background:#0f3357;padding:22px 24px;border-radius:12px 12px 0 0;color:#ffffff">',
+    '<img src="cid:monitorLogo" alt="Monitor Legislativo" style="height:58px;vertical-align:middle;margin-right:18px">',
+    '<span style="font-size:26px;font-weight:700;vertical-align:middle">Monitor Legislativo</span>',
+    '<div style="font-size:14px;color:#d7e5f2;margin-top:8px">Proposições novas • Assembleia Legislativa do RJ</div>',
+    '</div>',
+    '<div style="border:1px solid #d7dde7;border-top:0;padding:24px;border-radius:0 0 12px 12px">',
+    '<p style="display:inline-block;background:#e6f1fb;color:#0f3357;padding:6px 14px;border-radius:20px;font-weight:bold;margin:0 0 16px 0">FIRJAN</p>',
+    '<h2 style="color:#111827;margin:0 0 6px 0;font-size:24px">FIRJAN | ALERJ — Novas proposições</h2>',
+    '<p style="color:#526070;margin:0 0 18px 0">Rodada semanal • ' + intervaloSemana + ' • gerado em ' + formatarDataHoraBRT() + ' BRT</p>',
+    '<p style="background:#eef6ff;border:1px solid #c7ddf2;color:#173d63;padding:12px 14px;border-radius:8px;font-weight:bold">' + novas.length + ' proposição(ões) nova(s) localizada(s) na ALERJ, separadas por data de apresentação</p>',
+    '<table style="width:100%;border-collapse:collapse;font-size:14px">',
+    '<thead><tr style="background:#1a3a5c;color:white">',
+    '<th style="padding:10px;text-align:left">Sigla</th>',
+    '<th style="padding:10px;text-align:left">Número/Ano</th>',
+    '<th style="padding:10px;text-align:left">Autor(es)</th>',
+    '<th style="padding:10px;text-align:left">Tipo</th>',
+    '<th style="padding:10px;text-align:left">Ementa</th>',
+    '</tr></thead>',
+    '<tbody>' + linhas + '</tbody>',
+    '</table>',
+    '<p style="margin-top:20px;font-size:12px;color:#999">Acesse: <a href="https://www3.alerj.rj.gov.br">www3.alerj.rj.gov.br</a></p>',
+    '<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">',
+    '<p style="font-size:12px;color:#64748b;margin:0">Monitor Legislativo — acompanhamento legislativo estadual e municipal. Horário sempre em BRT.</p>',
+    '</div></div>'
+  ].join('');
 
   await transporter.sendMail({
-    from: `"Monitor Legislativo" <${EMAIL_REMETENTE}>`,
+    from: '"Monitor Legislativo" <' + EMAIL_REMETENTE + '>',
     to: FIRJAN_DESTINO,
-    subject: `FIRJAN | ALERJ — Novas proposições — ${formatarDataBRT()}`,
+    subject: 'FIRJAN | ALERJ — Novas proposições da semana — ' + formatarDataBRT(),
     html,
     attachments: fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-color.png', path: LOGO_PATH, cid: 'monitorLogo' }] : [],
   });
 
-  console.log(`✅ Email FIRJAN/ALERJ enviado para ${FIRJAN_DESTINO} com ${novas.length} proposições novas.`);
+  console.log('✅ Email FIRJAN/ALERJ enviado para ' + FIRJAN_DESTINO + ' com ' + novas.length + ' proposições novas.');
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
