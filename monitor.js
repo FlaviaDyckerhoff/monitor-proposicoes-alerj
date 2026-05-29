@@ -31,6 +31,7 @@ const TIPOS = [
 
 const ORDEM_TIPOS_EMAIL = ['PEC', 'PLC', 'PL'];
 const TIPOS_RESUMO_EMAIL = new Set(['IND-L', 'IND', 'MOC', 'REQ', 'REQ-I', 'REQ-SN']);
+const TIPOS_EXCLUIDOS_EMAIL = new Set(['IND-L', 'IND', 'MOC', 'REQ', 'REQ-I', 'REQ-SN']);
 
 // ─── Estado ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,10 @@ function ordemTipoEmail(sigla) {
 
 function ehTipoResumoEmail(sigla) {
   return TIPOS_RESUMO_EMAIL.has(sigla);
+}
+
+function deveExcluirDoEmail(sigla) {
+  return TIPOS_EXCLUIDOS_EMAIL.has(sigla);
 }
 
 function contemDestaqueFirjan(texto) {
@@ -278,7 +283,7 @@ function obterLimitesSemanaBRT() {
 function obterIntervaloSemanaBRT() {
   const { segunda, sexta } = obterLimitesSemanaBRT();
   const fmt = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' });
-  return fmt.format(segunda) + ' a ' + fmt.format(sexta);
+  return 'de ' + fmt.format(segunda) + ' a ' + fmt.format(sexta);
 }
 
 function estaNaSemanaAtualBRT(proposicao) {
@@ -520,7 +525,7 @@ async function enviarEmail(novas) {
   await transporter.sendMail({
     from: '"Monitor Legislativo" <' + EMAIL_REMETENTE + '>',
     to: FIRJAN_DESTINO,
-    subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | ALERJ — Novas proposições da semana — ' + formatarDataBRT(),
+    subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | ALERJ — Novas proposições ' + intervaloSemana,
     html,
     attachments: [
       ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-white.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
@@ -560,7 +565,7 @@ async function enviarEmail(novas) {
   const daSemana = doAnoAtual.filter(estaNaSemanaAtualBRT);
   console.log(`📅 Da semana atual (seg-sex): ${daSemana.length}`);
 
-  const pacoteSemanal = daSemana;
+  const pacoteSemanal = daSemana.filter(p => !deveExcluirDoEmail(p.sigla));
   console.log(`🗓️ Pacote semanal para envio: ${pacoteSemanal.length}`);
 
   if (pacoteSemanal.length > 0) {
