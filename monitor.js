@@ -8,7 +8,7 @@ const FIRJAN_ASSUNTO_PREFIXO = process.env.FIRJAN_ASSUNTO_PREFIXO || '';
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
-const LOGO_PATH = path.join(__dirname, 'assets', 'monitor-logo-color.png');
+const LOGO_PATH = path.join(__dirname, 'assets', 'monitor-logo-white.png');
 const FIRJAN_LOGO_PATH = path.join(__dirname, 'assets', 'firjan-logo-white.png');
 // O portal Lotus Notes da ALERJ responde corretamente em HTTPS; HTTP cai em bloqueio/rejeição.
 const BASE_URL = 'https://www3.alerj.rj.gov.br/lotus_notes/default.asp';
@@ -560,7 +560,7 @@ async function enviarEmail(novas) {
     subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | ALERJ — Novas proposições da semana — ' + formatarDataBRT(),
     html,
     attachments: [
-      ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-color.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
+      ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-white.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
       ...(fs.existsSync(FIRJAN_LOGO_PATH) ? [{ filename: 'firjan-logo-white.png', path: FIRJAN_LOGO_PATH, cid: 'firjanLogo' }] : []),
     ],
   });
