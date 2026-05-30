@@ -525,7 +525,7 @@ async function enviarEmail(novas) {
   await transporter.sendMail({
     from: '"Monitor Legislativo" <' + EMAIL_REMETENTE + '>',
     to: FIRJAN_DESTINO,
-    subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | ALERJ — Novas proposições ' + intervaloSemana,
+    subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | Rio de Janeiro - Assembleia Legislativa — Novas proposições ' + intervaloSemana,
     html,
     attachments: [
       ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-white.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
