@@ -5,6 +5,7 @@ const nodemailer = require('nodemailer');
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
 const FIRJAN_DESTINO = process.env.FIRJAN_DESTINO || EMAIL_DESTINO || 'tramitacao@monitorlegislativo.com.br';
 const FIRJAN_ASSUNTO_PREFIXO = process.env.FIRJAN_ASSUNTO_PREFIXO || '';
+const FIRJAN_EMAIL_DISABLED = process.env.FIRJAN_EMAIL_DISABLED === '1';
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
@@ -538,6 +539,11 @@ function anotarClientesCitados(proposicoes) {
 }
 
 async function enviarEmail(novas) {
+  if (FIRJAN_EMAIL_DISABLED) {
+    console.log('🚫 Email FIRJAN/ALERJ desativado; estado será atualizado sem preview.');
+    return;
+  }
+
   anotarClientesCitados(novas);
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -630,8 +636,12 @@ async function enviarEmail(novas) {
   console.log(`🆕 Novas ainda não vistas: ${pacoteSemanal.length}`);
 
   if (pacoteSemanal.length > 0) {
-    const pacoteEnriquecido = await enriquecerComMonitor(pacoteSemanal);
-    await enviarEmail(pacoteEnriquecido);
+    if (FIRJAN_EMAIL_DISABLED) {
+      console.log('🚫 Preview FIRJAN/ALERJ removido: marcando novas como vistas sem envio.');
+    } else {
+      const pacoteEnriquecido = await enriquecerComMonitor(pacoteSemanal);
+      await enviarEmail(pacoteEnriquecido);
+    }
     pacoteSemanal.forEach(p => idsVistos.add(p.id));
   } else {
     console.log('✅ Sem proposições na semana atual. Nada a enviar.');
