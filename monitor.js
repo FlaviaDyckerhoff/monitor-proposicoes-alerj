@@ -543,7 +543,8 @@ const CLIENTES_NOMES_PROPRIOS = [
   'Wild Fork', 'Ajinomoto', 'Vibra', 'Vibra Energia',
   'BR Distribuidora', 'Raízen', 'Raizen', 'Mindlab',
   'ABVTEX', 'Semove', 'Barcas', 'Seta',
-  'Nova Infra', 'BRT'
+  'Nova Infra', 'BRT', 'Consórcio Maracanã', 'Consorcio Maracana',
+  'Maracanã', 'Maracana'
 ];
 
 function clientesCitadosNaProposicao(p) {
@@ -612,11 +613,7 @@ function renderizarEmentaCliente(p, renderBase) {
 }
 
 async function enviarEmail(novas) {
-  if (FIRJAN_EMAIL_DISABLED) {
-    console.log('🚫 Email FIRJAN/ALERJ desativado; estado será atualizado sem preview.');
-    return;
-  }
-
+  const envioInterno = FIRJAN_EMAIL_DISABLED;
   anotarClientesCitados(novas);
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -625,21 +622,30 @@ async function enviarEmail(novas) {
 
   const linhas = montarLinhasPorData(novas);
   const intervaloSemana = obterIntervaloSemanaBRT();
+  const destinatario = envioInterno ? (EMAIL_DESTINO || 'tramitacao@monitorlegislativo.com.br') : FIRJAN_DESTINO;
+  const titulo = envioInterno ? 'ALERJ — Proposições novas' : 'FIRJAN | ALERJ — Novas proposições';
+  const subtitulo = envioInterno ? 'Rodada diária interna' : 'Rodada semanal';
+  const instrucao = envioInterno
+    ? 'Email operacional para a equipe de tramitação. O consolidado FIRJAN de sexta é produto separado.'
+    : 'Marquem os projetos que querem monitorar. Quando o projeto já estiver no Monitor ou já estiver em FIRJAN, o status aparece na linha.';
+  const assunto = envioInterno
+    ? 'ALERJ | Proposições novas — ' + formatarDataBRT()
+    : FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | Rio de Janeiro - Assembleia Legislativa — Novas proposições ' + intervaloSemana;
 
   const html = [
     '<div style="font-family:Arial,sans-serif;max-width:1180px;margin:0 auto;background:#ffffff;color:#111827">',
     '<div style="background:#0f3357;padding:16px 22px;border-radius:12px 12px 0 0;color:#ffffff">',
     '<table role="presentation" style="width:100%;border-collapse:collapse"><tr>',
     '<td style="vertical-align:middle;text-align:left"><img src="cid:monitorLogo" alt="Monitor Legislativo" style="height:54px;vertical-align:middle"></td>',
-    '<td style="vertical-align:middle;text-align:right"><img src="cid:firjanLogo" alt="Firjan" style="height:42px;vertical-align:middle"></td>',
+    envioInterno ? '<td></td>' : '<td style="vertical-align:middle;text-align:right"><img src="cid:firjanLogo" alt="Firjan" style="height:42px;vertical-align:middle"></td>',
     '</tr></table>',
     '<div style="font-size:13px;color:#d7e5f2;margin-top:8px">Proposições novas • Assembleia Legislativa do RJ</div>',
     '</div>',
     '<div style="border:1px solid #d7dde7;border-top:0;padding:18px;border-radius:0 0 12px 12px">',
-    '<h2 style="color:#111827;margin:0 0 6px 0;font-size:22px">FIRJAN | ALERJ — Novas proposições</h2>',
-    '<p style="color:#526070;margin:0 0 14px 0;font-size:13px">Rodada semanal • ' + intervaloSemana + ' • gerado em ' + formatarDataHoraBRT() + ' BRT</p>',
+    '<h2 style="color:#111827;margin:0 0 6px 0;font-size:22px">' + titulo + '</h2>',
+    '<p style="color:#526070;margin:0 0 14px 0;font-size:13px">' + subtitulo + ' • ' + intervaloSemana + ' • gerado em ' + formatarDataHoraBRT() + ' BRT</p>',
     '<p style="background:#eef6ff;border:1px solid #c7ddf2;color:#173d63;padding:10px 12px;border-radius:8px;font-weight:bold;margin:0 0 12px 0">' + novas.length + ' proposição(ões) nova(s) localizada(s) na ALERJ, separadas por data de apresentação e status no Monitor</p>',
-    '<div style="margin:0 0 12px;color:#526070;font-size:12px;line-height:1.4">Marquem os projetos que querem monitorar. Quando o projeto já estiver no Monitor ou já estiver em FIRJAN, o status aparece na linha.</div>',
+    '<div style="margin:0 0 12px;color:#526070;font-size:12px;line-height:1.4">' + instrucao + '</div>',
     '<table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:auto">',
     '<thead><tr style="background:#1a3a5c;color:white">',
     '<th style="padding:10px;text-align:left">Item</th>',
@@ -661,16 +667,16 @@ async function enviarEmail(novas) {
 
   await transporter.sendMail({
     from: '"Monitor Legislativo" <' + EMAIL_REMETENTE + '>',
-    to: FIRJAN_DESTINO,
-    subject: FIRJAN_ASSUNTO_PREFIXO + 'FIRJAN | Rio de Janeiro - Assembleia Legislativa — Novas proposições ' + intervaloSemana,
+    to: destinatario,
+    subject: assunto,
     html,
     attachments: [
       ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-white.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
-      ...(fs.existsSync(FIRJAN_LOGO_PATH) ? [{ filename: 'firjan-logo-white.png', path: FIRJAN_LOGO_PATH, cid: 'firjanLogo' }] : []),
+      ...(!envioInterno && fs.existsSync(FIRJAN_LOGO_PATH) ? [{ filename: 'firjan-logo-white.png', path: FIRJAN_LOGO_PATH, cid: 'firjanLogo' }] : []),
     ],
   });
 
-  console.log('✅ Email FIRJAN/ALERJ enviado para ' + FIRJAN_DESTINO + ' com ' + novas.length + ' proposições novas.');
+  console.log('✅ Email ' + (envioInterno ? 'interno' : 'FIRJAN') + '/ALERJ enviado para ' + destinatario + ' com ' + novas.length + ' proposições novas.');
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
