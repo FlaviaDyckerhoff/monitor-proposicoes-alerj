@@ -15,7 +15,6 @@ const LOGO_PATH = path.join(__dirname, 'assets', 'monitor-logo-white.png');
 const FIRJAN_LOGO_PATH = path.join(__dirname, 'assets', 'firjan-logo-white.png');
 // O portal Lotus Notes da ALERJ responde corretamente em HTTPS; HTTP cai em bloqueio/rejeição.
 const BASE_URL = 'https://www3.alerj.rj.gov.br/lotus_notes/default.asp';
-const DETALHE_BASE_URL = 'https://www3.alerj.rj.gov.br';
 let falhasBusca = 0;
 
 const TIPOS = [
@@ -118,6 +117,21 @@ function formatarDataBRT() {
   return new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 }
 
+function montarUrlDetalhe(tipoId, href) {
+  if (!href) return `${BASE_URL}?id=${tipoId}`;
+
+  const normalizada = href.replace(/&amp;/g, '&').trim();
+  const url = normalizada.startsWith('http')
+    ? new URL(normalizada)
+    : new URL(normalizada, 'http://alerjln1.alerj.rj.gov.br');
+
+  // Links diretos em www3.alerj.rj.gov.br/scpro*.nsf retornam 404.
+  // O wrapper oficial em HTTPS abre o documento Lotus corretamente.
+  const path = url.pathname + url.search;
+  const encoded = Buffer.from(path, 'utf8').toString('base64');
+  return `${BASE_URL}?id=${tipoId}&url=${encodeURIComponent(encoded)}`;
+}
+
 function extrairProposicoesDaPagina(html, tipo) {
   const proposicoes = [];
 
@@ -147,7 +161,7 @@ function extrairProposicoesDaPagina(html, tipo) {
     const ano = codigo.substring(0, 4);
     const numero = String(parseInt(codigo.substring(6), 10));
     const detalheMatch = linha.match(/data-role="([^"]+)"/i);
-    const url = detalheMatch ? new URL(detalheMatch[1], DETALHE_BASE_URL).href : `${BASE_URL}?id=${tipo.id}`;
+    const url = montarUrlDetalhe(tipo.id, detalheMatch && detalheMatch[1]);
 
     // Extrai todas as células como texto limpo
     const tds = [];
