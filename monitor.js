@@ -1,3 +1,13 @@
+const FICHA_URL = process.env.FICHA_URL || 'https://doe.monitorlegislativo.com.br/ficha';
+
+function fichaEmailButtonHtml() {
+  return '<div style="background:#eef6ff;border:1px solid #c7ddf2;border-radius:6px;padding:11px 13px;margin:12px 0;color:#173d63;font-size:13px;line-height:1.45">' +
+    '<strong>Ficha</strong><br>' +
+    '<span>Cole o link oficial de uma proposição para criar ficha e acelerar a revisão/cadastro.</span><br>' +
+    '<a href="' + FICHA_URL + '" style="display:inline-block;background:#0f3d5c;color:white;text-decoration:none;border-radius:4px;padding:8px 11px;font-weight:bold;margin-top:8px">Criar ficha</a>' +
+    '</div>';
+}
+
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
@@ -8,6 +18,9 @@ const FIRJAN_ASSUNTO_PREFIXO = process.env.FIRJAN_ASSUNTO_PREFIXO || '';
 const FIRJAN_EMAIL_DISABLED = process.env.FIRJAN_EMAIL_DISABLED === '1';
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
+const EXPORT_NOVAS_JSON = process.env.EXPORT_NOVAS_JSON || '';
+const EXPORT_NOVAS_NO_EMAIL = process.env.EXPORT_NOVAS_NO_EMAIL === '1';
+const NO_STATE_UPDATE = process.env.NO_STATE_UPDATE === '1';
 const CONTROLE03_FORCE_LATEST = String(process.env.CONTROLE03_FORCE_LATEST || '').trim() === '1';
 const RADAR03_URL = process.env.RADAR03_URL || 'https://doe.monitorlegislativo.com.br/controle03/';
 const CASA_RADAR03 = process.env.CASA_RADAR03 || 'ALERJ';
@@ -38,10 +51,15 @@ const TIPOS = [
   { sigla: 'REQ-I',  label: 'Req. de Informação',          id: 171 },
   { sigla: 'REQ-SN', label: 'Req. sem Número',             id: 172 },
 ];
+const TIPOS_PERMITIDOS = new Set(String(process.env.ALERJ_TIPOS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean));
 
 const ORDEM_TIPOS_EMAIL = ['PEC', 'PLC', 'PL'];
 const TIPOS_RESUMO_EMAIL = new Set(['IND-L', 'IND', 'MOC', 'REQ', 'REQ-I', 'REQ-SN']);
 const TIPOS_EXCLUIDOS_EMAIL = new Set(['IND-L', 'IND', 'MOC', 'REQ', 'REQ-I', 'REQ-SN']);
+const MAX_PAGINAS_TIPO = Number(process.env.ALERJ_MAX_PAGINAS_TIPO || '120');
 
 // ─── Estado ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +72,19 @@ function carregarEstado() {
 
 function salvarEstado(estado) {
   fs.writeFileSync(ARQUIVO_ESTADO, JSON.stringify(estado, null, 2));
+}
+
+function exportarNovas(pathDestino, novas) {
+  if (!pathDestino) return;
+  fs.mkdirSync(path.dirname(pathDestino), { recursive: true });
+  fs.writeFileSync(pathDestino, JSON.stringify({
+    casa: 'ALERJ',
+    gerado_em: new Date().toISOString(),
+    intervalo: obterIntervaloSemanaBRT(),
+    total: novas.length,
+    proposicoes: novas,
+  }, null, 2));
+  console.log('📦 Export JSON ALERJ: ' + pathDestino + ' · ' + novas.length + ' proposição(ões)');
 }
 
 // ─── Scraping ─────────────────────────────────────────────────────────────────
@@ -138,6 +169,56 @@ function montarUrlDetalhe(tipoId, href) {
   const path = url.pathname + url.search;
   const encoded = Buffer.from(path, 'utf8').toString('base64');
   return `${BASE_URL}?id=${tipoId}&url=${encodeURIComponent(encoded)}`;
+}
+
+function montarUrlLista(tipoId, href) {
+  if (!href) return `${BASE_URL}?id=${tipoId}`;
+  const normalizada = href.replace(/&amp;/g, '&').trim();
+  const path = normalizada.startsWith('http')
+    ? (() => {
+        const url = new URL(normalizada);
+        return url.pathname + url.search;
+      })()
+    : normalizada;
+  const encoded = Buffer.from(path, 'utf8').toString('base64');
+  return `${BASE_URL}?id=${tipoId}&url=${encodeURIComponent(encoded)}`;
+}
+
+function extrairStartAtual(url) {
+  const raw = String(url || '');
+  const direto = raw.match(/[?&]Start=(\d+)/i);
+  if (direto) return Number(direto[1]);
+  const encoded = raw.match(/[?&]url=([^&]+)/i);
+  if (!encoded) return 0;
+  try {
+    const decoded = Buffer.from(decodeURIComponent(encoded[1]), 'base64').toString('utf8');
+    const match = decoded.match(/[?&]Start=(\d+)/i);
+    return match ? Number(match[1]) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function proximaPaginaLista(html, startAtual) {
+  const candidatos = [];
+  const regex = /data-role="([^"]*?Start=(\d+)[^"]*)"/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    const start = Number(match[2]);
+    if (Number.isFinite(start) && start > startAtual) {
+      candidatos.push({ href: match[1], start });
+    }
+  }
+  candidatos.sort((a, b) => a.start - b.start);
+  return candidatos[0] || null;
+}
+
+function paginaMaisAntigaQuePeriodo(lista) {
+  if (!lista.length) return false;
+  const datasValidas = lista.map(p => parseDataBR(p.data)).filter(Boolean);
+  if (!datasValidas.length) return false;
+  const { inicio } = obterLimiteRecenteBRT(BACKFILL_DAYS);
+  return Math.max(...datasValidas) < inicio;
 }
 
 function extrairProposicoesDaPagina(html, tipo) {
@@ -226,35 +307,52 @@ function extrairProposicoesDaPagina(html, tipo) {
 }
 
 async function buscarTipo(tipo) {
-  const url = `${BASE_URL}?id=${tipo.id}`;
   console.log(`  🔍 ${tipo.sigla} (id=${tipo.id})`);
+  const proposicoes = [];
+  const vistos = new Set();
+  const paginasVisitadas = new Set();
+  let url = montarUrlLista(tipo.id);
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; monitor-alerj/1.0)',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-      signal: AbortSignal.timeout(30000),
-    });
+    for (let pagina = 0; pagina < MAX_PAGINAS_TIPO && url && !paginasVisitadas.has(url); pagina += 1) {
+      paginasVisitadas.add(url);
+      const startAtual = extrairStartAtual(url);
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; monitor-alerj/1.0)',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
 
-    if (!response.ok) {
-      console.error(`  ❌ HTTP ${response.status} para ${tipo.sigla}`);
-      falhasBusca += 1;
-      return [];
+      if (!response.ok) {
+        console.error(`  ❌ HTTP ${response.status} para ${tipo.sigla} Start=${startAtual}`);
+        falhasBusca += 1;
+        break;
+      }
+
+      const html = await response.text();
+      const lista = extrairProposicoesDaPagina(html, tipo);
+      for (const item of lista) {
+        if (vistos.has(item.id)) continue;
+        vistos.add(item.id);
+        proposicoes.push(item);
+      }
+
+      if (paginaMaisAntigaQuePeriodo(lista)) break;
+      const proxima = proximaPaginaLista(html, startAtual);
+      url = proxima ? montarUrlLista(tipo.id, proxima.href) : '';
     }
 
-    const html = await response.text();
-    const lista = extrairProposicoesDaPagina(html, tipo);
-    console.log(`  ✅ ${tipo.sigla}: ${lista.length} proposições encontradas`);
+    console.log(`  ✅ ${tipo.sigla}: ${proposicoes.length} proposições encontradas em ${paginasVisitadas.size} página(s)`);
 
     // Debug: mostra primeira proposição para validar campos
-    if (lista.length > 0) {
-      const p = lista[0];
+    if (proposicoes.length > 0) {
+      const p = proposicoes[0];
       console.log(`     Exemplo: ${p.numero}/${p.ano} | ${p.data} | ${p.autor.substring(0,30)} | ${p.ementa.substring(0,60)}...`);
     }
 
-    return lista;
+    return proposicoes;
   } catch (err) {
     console.error(`  ❌ Erro ao buscar ${tipo.sigla}: ${err.message}`);
     falhasBusca += 1;
@@ -264,7 +362,8 @@ async function buscarTipo(tipo) {
 
 async function buscarTodasProposicoes() {
   const todas = [];
-  for (const tipo of TIPOS) {
+  const tipos = TIPOS_PERMITIDOS.size ? TIPOS.filter(tipo => TIPOS_PERMITIDOS.has(tipo.sigla)) : TIPOS;
+  for (const tipo of tipos) {
     const lista = await buscarTipo(tipo);
     todas.push(...lista);
     await new Promise(r => setTimeout(r, 1500));
@@ -565,7 +664,7 @@ const CLIENTES_NOMES_PROPRIOS = [
   'Wild Fork', 'Ajinomoto', 'Vibra', 'Vibra Energia',
   'BR Distribuidora', 'Raízen', 'Raizen', 'Mindlab',
   'ABVTEX', 'Semove', 'Barcas', 'Seta',
-  'Nova Infra', 'BRT', 'Consórcio Maracanã', 'Consorcio Maracana',
+  'Nova Infra', 'Consórcio Maracanã', 'Consorcio Maracana',
   'Maracanã', 'Maracana'
 ];
 
@@ -596,6 +695,10 @@ function clientesCitadosNaProposicao(p) {
   if (interesseMaracana && !achados.some(a => /maracan/i.test(normalizarTextoCliente(a)))) {
     achados.push('Consórcio Maracanã (interesse por ementa: ' + interesseMaracana + ')');
   }
+  const interesseSemove = detectarInteresseSemoveBrt(texto);
+  if (interesseSemove && !achados.some(a => /semove/i.test(normalizarTextoCliente(a)))) {
+    achados.push('Semove (interesse por ementa: ' + interesseSemove + ')');
+  }
   return achados;
 }
 
@@ -604,6 +707,23 @@ function normalizarTextoCliente(texto) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function detectarInteresseSemoveBrt(texto) {
+  const t = normalizarTextoCliente(texto);
+  if (!/\bbrt\b/.test(t)) return '';
+  const contextoTransporte = [
+    /\bsemove\b/,
+    /\bmobilidade urbana\b/,
+    /\btransporte coletivo\b/,
+    /\bonibus\b/,
+    /\bcorredor(es)?\b/,
+    /\bterminal(is)?\b/,
+    /\bsistema de transporte\b/,
+    /\bconcess(ao|oes)\b/,
+    /\blinha(s)? municipal(is)?\b/,
+  ];
+  return contextoTransporte.some(re => re.test(t)) ? 'BRT' : '';
 }
 
 function detectarInteresseConsorcioMaracana(texto) {
@@ -1035,7 +1155,7 @@ async function enviarEmail(novas) {
     from: '"Monitor Legislativo" <' + EMAIL_REMETENTE + '>',
     to: destinatario,
     subject: assuntoEmailClienteCitado(novas, assunto),
-    html,
+    html: fichaEmailButtonHtml() + html,
     attachments: [
       ...(fs.existsSync(LOGO_PATH) ? [{ filename: 'monitor-logo-white.png', path: LOGO_PATH, cid: 'monitorLogo' }] : []),
       ...(!envioInterno && fs.existsSync(FIRJAN_LOGO_PATH) ? [{ filename: 'firjan-logo-white.png', path: FIRJAN_LOGO_PATH, cid: 'firjanLogo' }] : []),
@@ -1082,15 +1202,25 @@ async function enviarEmail(novas) {
 
   if (pacoteSemanal.length > 0) {
     const pacoteEnriquecido = await enriquecerComMonitor(pacoteSemanal);
-    await sincronizarRadar03(novas);
-    await enviarEmail(pacoteEnriquecido);
+    exportarNovas(EXPORT_NOVAS_JSON, pacoteEnriquecido);
+    if (!EXPORT_NOVAS_NO_EMAIL) {
+      await sincronizarRadar03(pacoteEnriquecido);
+      await enviarEmail(pacoteEnriquecido);
+    } else {
+      console.log('📌 Exportação sem email e sem sincronização Radar 03.');
+    }
     pacoteSemanal.forEach(p => idsVistos.add(p.id));
   } else {
     console.log('✅ Sem proposições na semana atual. Nada a enviar.');
+    exportarNovas(EXPORT_NOVAS_JSON, []);
   }
 
   elegiveis.forEach(p => idsVistos.add(p.id));
   estado.proposicoes_vistas = Array.from(idsVistos);
   estado.ultima_execucao = new Date().toISOString();
-  salvarEstado(estado);
+  if (NO_STATE_UPDATE) {
+    console.log('📌 Estado preservado por NO_STATE_UPDATE=1.');
+  } else {
+    salvarEstado(estado);
+  }
 })();
