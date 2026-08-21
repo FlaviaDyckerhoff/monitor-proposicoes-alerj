@@ -1120,8 +1120,8 @@ async function enviarEmail(novas) {
 
   const envioInterno = FIRJAN_EMAIL_DISABLED;
   // Regra FIRJAN: o email externo ALERJ/FIRJAN usa apenas o fluxo proprio
-  // aprovado para o cliente, sem a matriz geral de clientes/palavras.
-  anotarClientesCitados(novas, { usarMatcherComum: envioInterno });
+  // aprovado para o cliente, sem anotacao geral de cliente/palavra.
+  if (envioInterno) anotarClientesCitados(novas);
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
