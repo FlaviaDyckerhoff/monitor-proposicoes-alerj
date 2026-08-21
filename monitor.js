@@ -11,6 +11,25 @@ function fichaEmailButtonHtml() {
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
+let promoverInteresseClienteProposicao = (_item, atuais) => Array.isArray(atuais) ? atuais : [];
+try {
+  try {
+    ({ promoverInteresseClienteProposicao } = require('./client_interest_matcher_js'));
+  } catch (_localErr) {
+    ({ promoverInteresseClienteProposicao } = require('../../agents/pautas/client_interest_matcher_js'));
+  }
+} catch (err) {
+  console.warn('⚠️ Matcher cliente/palavra comum indisponível; usando destaque legado: ' + err.message);
+}
+
+function mlClientInterestContext() {
+  return {
+    uf: typeof CLIENT_INTEREST_UF !== 'undefined' ? CLIENT_INTEREST_UF : (process.env.CLIENT_INTEREST_UF || process.env.UF || ''),
+    municipio: typeof CLIENT_INTEREST_MUNICIPIO !== 'undefined' ? CLIENT_INTEREST_MUNICIPIO : (process.env.CLIENT_INTEREST_MUNICIPIO || process.env.MUNICIPIO || ''),
+    casa: typeof CASA_RADAR03 !== 'undefined' ? CASA_RADAR03 : (process.env.CASA_RADAR03 || process.env.CASA || ''),
+  };
+}
+
 
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
 const FIRJAN_DESTINO = process.env.FIRJAN_DESTINO || EMAIL_DESTINO || 'tramitacao@monitorlegislativo.com.br';
@@ -699,7 +718,7 @@ function clientesCitadosNaProposicao(p) {
   if (interesseSemove && !achados.some(a => /semove/i.test(normalizarTextoCliente(a)))) {
     achados.push('Semove (interesse por ementa: ' + interesseSemove + ')');
   }
-  return achados;
+  return promoverInteresseClienteProposicao(p, achados, mlClientInterestContext());
 }
 
 function normalizarTextoCliente(texto) {
