@@ -699,7 +699,7 @@ function clienteAtivoParaDestaque(nome) {
   return !CLIENTES_INATIVOS_NAO_DESTACAR.some(inativo => inativo.toLowerCase() === String(nome || '').toLowerCase());
 }
 
-function clientesCitadosNaProposicao(p) {
+function clientesCitadosNaProposicao(p, opts = {}) {
   const texto = [p.cliente, p.clientes, p.autor, p.autores, p.tipo, p.rotulo, p.titulo, p.identificacao, p.ementa]
     .filter(Boolean)
     .join(' ');
@@ -718,6 +718,7 @@ function clientesCitadosNaProposicao(p) {
   if (interesseSemove && !achados.some(a => /semove/i.test(normalizarTextoCliente(a)))) {
     achados.push('Semove (interesse por ementa: ' + interesseSemove + ')');
   }
+  if (opts.usarMatcherComum === false) return achados;
   return promoverInteresseClienteProposicao(p, achados, mlClientInterestContext());
 }
 
@@ -789,9 +790,9 @@ function detectarInteresseConsorcioMaracana(texto) {
   return '';
 }
 
-function anotarClientesCitados(proposicoes) {
+function anotarClientesCitados(proposicoes, opts = {}) {
   for (const p of proposicoes || []) {
-    const clientes = clientesCitadosNaProposicao(p);
+    const clientes = clientesCitadosNaProposicao(p, opts);
     p.clientesCitados = clientes;
     if (clientes.length && p.ementa && !(String(p.ementa).includes('Cliente citado:') || String(p.ementa).includes('CLIENTE CITADO:'))) {
       p.ementa = String(p.ementa).trim() + ' | 🆘 CLIENTE CITADO: ' + clientes.join(', ');
@@ -1118,7 +1119,9 @@ async function enviarEmail(novas) {
   }
 
   const envioInterno = FIRJAN_EMAIL_DISABLED;
-  anotarClientesCitados(novas);
+  // Regra FIRJAN: o email externo ALERJ/FIRJAN usa apenas o fluxo proprio
+  // aprovado para o cliente, sem a matriz geral de clientes/palavras.
+  anotarClientesCitados(novas, { usarMatcherComum: envioInterno });
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
